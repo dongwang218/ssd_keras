@@ -385,8 +385,8 @@ def decode_y2(y_pred,
 
     # 1: Convert the classes from one-hot encoding to their class ID
     y_pred_converted = np.copy(y_pred[:,:,-14:-8]) # Slice out the four offset predictions plus two elements whereto we'll write the class IDs and confidences in the next step
-    y_pred_converted[:,:,0] = np.argmax(y_pred[:,:,:-12], axis=-1) # The indices of the highest confidence values in the one-hot class vectors are the class ID
-    y_pred_converted[:,:,1] = np.amax(y_pred[:,:,:-12], axis=-1) # Store the confidence values themselves, too
+    y_pred_converted[:,:,0] = np.argmax(y_pred[:,:,1:-12], axis=-1) + 1 # The indices of the highest confidence values in the one-hot class vectors are the class ID
+    y_pred_converted[:,:,1] = np.amax(y_pred[:,:,1:-12], axis=-1) # Store the confidence values themselves, too
 
     # 2: Convert the box coordinates from the predicted anchor box offsets to predicted absolute coordinates
     if input_coords == 'centroids':
