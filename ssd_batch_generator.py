@@ -565,8 +565,11 @@ class BatchGenerator:
                 current = 0
 
             for filename in self.filenames[current:current+batch_size]:
-                with Image.open(filename) as img:
-                    batch_X.append(np.array(img))
+              img = cv2.imread(filename)
+              img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+              batch_X.append(img) #np.array(img)
+              #with Image.open(filename) as img:
+              #    batch_X.append(np.array(img))
             batch_y = deepcopy(self.labels[current:current+batch_size])
 
             this_filenames = self.filenames[current:current+batch_size] # The filenames of the files in the current batch
@@ -859,6 +862,8 @@ class BatchGenerator:
 
                 if gray:
                     batch_X[i] = np.expand_dims(cv2.cvtColor(batch_X[i], cv2.COLOR_RGB2GRAY), axis=2)
+
+                batch_X[i] = cv2.cvtColor(batch_X[i], cv2.COLOR_RGB2HSV)
 
             # If any batch items need to be removed because of failed random cropping, remove them now.
             for j in sorted(batch_items_to_remove, reverse=True):
