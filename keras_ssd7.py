@@ -294,9 +294,28 @@ def build_model(image_size,
                                                                  anchors6_reshaped,
                                                                  anchors7_reshaped])
 
+    # pick the largest prediction
+    def return_max_nonbackground(x):
+        background, forground = tf.split(x, [-1, 1], axis = -1)
+        forground = tf.squeeze(forground, axis = -1)
+        max_forground = tf.to_int32(tf.argmax(forground, axis = 1))
+
+        b_2 = tf.expand_dims(max_forground, 1)
+        r2 = tf.expand_dims(tf.range(tf.shape(max_forground)[0]), 1)
+        ind = tf.concat([r2, b_2], 1)
+        max_over_boxes = tf.gather_nd(x, ind)
+
+        return max_over_boxes
+
+    #mark_classify = Lambda(return_max_nonbackground, output_shape=(classes_concat.shape[0], classes_concat.shape[-1]))(classes_concat)
+    #
+
+
     # The box coordinate predictions will go into the loss function just the way they are,
     # but for the class predictions, we'll apply a softmax activation layer first
     classes_softmax = Activation('softmax', name='classes_softmax')(classes_concat)
+
+    # we should just pick the one with max activate from batch, nboxes_total, n_class
 
     # Concatenate the class and box coordinate predictions and the anchors to one large predictions tensor
     # Output shape of `predictions`: (batch, n_boxes_total, n_classes + 4 + 8)

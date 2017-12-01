@@ -67,6 +67,30 @@ def iou(boxes1, boxes2, coords='centroids'):
 
     return intersection / union
 
+def iot(boxes1, boxes2, coords):
+    """
+    boxes2 is the truth, boxes1 is the anchor, return the ratio of truth inside anchor
+    """
+    if len(boxes1.shape) > 2: raise ValueError("boxes1 must have rank either 1 or 2, but has rank {}.".format(len(boxes1.shape)))
+    if len(boxes2.shape) > 2: raise ValueError("boxes2 must have rank either 1 or 2, but has rank {}.".format(len(boxes2.shape)))
+
+    if len(boxes1.shape) == 1: boxes1 = np.expand_dims(boxes1, axis=0)
+    if len(boxes2.shape) == 1: boxes2 = np.expand_dims(boxes2, axis=0)
+
+    if not (boxes1.shape[1] == boxes2.shape[1] == 4): raise ValueError("It must be boxes1.shape[1] == boxes2.shape[1] == 4, but it is boxes1.shape[1] == {}, boxes2.shape[1] == {}.".format(boxes1.shape[1], boxes2.shape[1]))
+
+    if coords == 'centroids':
+        # TODO: Implement a version that uses fewer computation steps (that doesn't need conversion)
+        boxes1 = convert_coordinates(boxes1, start_index=0, conversion='centroids2minmax')
+        boxes2 = convert_coordinates(boxes2, start_index=0, conversion='centroids2minmax')
+    elif coords != 'minmax':
+        raise ValueError("Unexpected value for `coords`. Supported values are 'minmax' and 'centroids'.")
+
+    intersection = np.maximum(0, np.minimum(boxes1[:,1], boxes2[:,1]) - np.maximum(boxes1[:,0], boxes2[:,0])) * np.maximum(0, np.minimum(boxes1[:,3], boxes2[:,3]) - np.maximum(boxes1[:,2], boxes2[:,2]))
+    truth = (boxes2[:,1] - boxes2[:,0]) * (boxes2[:,3] - boxes2[:,2])
+
+    return intersection / truth
+
 def convert_coordinates(tensor, start_index, conversion='minmax2centroids'):
     '''
     Convert coordinates for axis-aligned 2D boxes between two coordinate formats.
@@ -448,7 +472,7 @@ class SSDBoxEncoder:
                  limit_boxes=True,
                  variances=[1.0, 1.0, 1.0, 1.0],
                  pos_iou_threshold=0.5,
-                 neg_iou_threshold=0.3,
+                 neg_iot_threshold=0.3,
                  coords='centroids',
                  normalize_coords=False):
         '''
@@ -502,7 +526,7 @@ class SSDBoxEncoder:
                 set this to `[0.1, 0.1, 0.2, 0.2]`, provided the coordinate format is 'centroids'. Defaults to `[1.0, 1.0, 1.0, 1.0]`.
             pos_iou_threshold (float, optional): The intersection-over-union similarity threshold that must be
                 met in order to match a given ground truth box to a given anchor box. Defaults to 0.5.
-            neg_iou_threshold (float, optional): The maximum allowed intersection-over-union similarity of an
+            neg_iot_threshold (float, optional): The maximum allowed intersection-over-union similarity of an
                 anchor box with any ground truth box to be labeled a negative (i.e. background) box. If an
                 anchor box is neither a positive, nor a negative box, it will be ignored during training.
             coords (str, optional): The box coordinate format to be used internally in the model (i.e. this is not the input format
@@ -549,8 +573,8 @@ class SSDBoxEncoder:
         if np.any(variances <= 0):
             raise ValueError("All variances must be >0, but the variances given are {}".format(variances))
 
-        if neg_iou_threshold > pos_iou_threshold:
-            raise ValueError("It cannot be `neg_iou_threshold > pos_iou_threshold`.")
+        if neg_iot_threshold > pos_iou_threshold:
+            raise ValueError("It cannot be `neg_iot_threshold > pos_iou_threshold`.")
 
         if not (coords == 'minmax' or coords == 'centroids'):
             raise ValueError("Unexpected value for `coords`. Supported values are 'minmax' and 'centroids'.")
@@ -568,7 +592,7 @@ class SSDBoxEncoder:
         self.limit_boxes = limit_boxes
         self.variances = variances
         self.pos_iou_threshold = pos_iou_threshold
-        self.neg_iou_threshold = neg_iou_threshold
+        self.neg_iot_threshold = neg_iot_threshold
         self.coords = coords
         self.normalize_coords = normalize_coords
 
@@ -814,7 +838,7 @@ class SSDBoxEncoder:
 
         The class for all anchor boxes for which there was no match with any ground truth box will be set to the
         background class, except for those anchor boxes whose IoU similarity with any ground truth box is higher than
-        the set negative threshold (see the `neg_iou_threshold` argument in `__init__()`).
+        the set negative threshold (see the `neg_iot_threshold` argument in `__init__()`).
 
         Arguments:
             ground_truth_labels (list): A python list of length `batch_size` that contains one 2D Numpy array
@@ -853,7 +877,8 @@ class SSDBoxEncoder:
                 if self.coords == 'centroids':
                     true_box = convert_coordinates(true_box, start_index=1, conversion='minmax2centroids')
                 similarities = iou(y_encode_template[i,:,-12:-8], true_box[1:], coords=self.coords) # The iou similarities for all anchor boxes
-                negative_boxes[similarities >= self.neg_iou_threshold] = 0 # If a negative box gets an IoU match >= `self.neg_iou_threshold`, it's no longer a valid negative box
+                similarities_t = iot(y_encode_template[i,:,-12:-8], true_box[1:], coords=self.coords)
+                negative_boxes[similarities_t >= self.neg_iot_threshold] = 0 # If a negative box gets an IoU match >= `self.neg_iot_threshold`, it's no longer a valid negative box
                 similarities *= available_boxes # Filter out anchor boxes which aren't available anymore (i.e. already matched to a different ground truth box)
                 available_and_thresh_met = np.copy(similarities)
                 available_and_thresh_met[available_and_thresh_met < self.pos_iou_threshold] = 0 # Filter out anchor boxes which don't meet the iou threshold
