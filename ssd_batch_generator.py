@@ -29,6 +29,7 @@ import csv
 import os
 from bs4 import BeautifulSoup
 import pickle
+import shutil
 
 # Image processing functions used by the generator to perform the following image manipulations:
 # - Translation
@@ -434,7 +435,7 @@ class BatchGenerator:
                  gray=False,
                  limit_boxes=True,
                  include_thresh=0.3,
-                 diagnostics=False):
+                 diagnostics=False, dump = False):
         '''
         Generate batches of samples and corresponding labels indefinitely from
         lists of filenames and labels.
@@ -546,7 +547,27 @@ class BatchGenerator:
             in the `BachtGenerator` constructor.
         '''
 
-        self.filenames, self.labels = shuffle(self.filenames, self.labels) # Shuffle the data before we begin
+
+        if train and dump:
+          print('generating training log jpg and xml')
+          self.filenames, self.labels = shuffle(self.filenames, self.labels) # Shuffle the data before we begin
+          working_dir = '/host/data/corrections/generated_training'
+          try:
+            shutil.rmtree(working_dir)
+          except:
+            pass
+          if not os.path.exists(working_dir):
+            os.makedirs(working_dir)
+
+          training_log = open(os.path.join(working_dir, 'training_log.xml'), 'w')
+          training_log.write("""<?xml version='1.0' encoding='ISO-8859-1'?>
+<?xml-stylesheet type='text/xsl' href='image_metadata_stylesheet.xsl'?>
+<dataset>
+<name>imglab dataset</name>
+<comment>Created by imglab tool.</comment>
+<images>
+""")
+
         current = 0
 
         # Find out the indices of the box coordinates in the label data
@@ -561,7 +582,7 @@ class BatchGenerator:
 
             #Shuffle the data after each complete pass
             if current >= len(self.filenames):
-                self.filenames, self.labels = shuffle(self.filenames, self.labels)
+                if train: self.filenames, self.labels = shuffle(self.filenames, self.labels)
                 current = 0
 
             for filename in self.filenames[current:current+batch_size]:
@@ -867,14 +888,30 @@ class BatchGenerator:
             for j in sorted(batch_items_to_remove, reverse=True):
                 batch_X.pop(j)
                 batch_y.pop(j) # This isn't efficient, but this should hopefully not need to be done often anyway
-
+                this_filenames.pop(j)
             if train: # During training we need the encoded labels instead of the format that `batch_y` has
                 if ssd_box_encoder is None:
                     raise ValueError("`ssd_box_encoder` cannot be `None` in training mode.")
-                y_true = ssd_box_encoder.encode_y(batch_y) # Encode the labels into the `y_true` tensor that the cost function needs
+                y_true, y_true_plain = ssd_box_encoder.encode_y(batch_y) # Encode the labels into the `y_true` tensor that the cost function needs
 
             # CAUTION: Converting `batch_X` into an array will result in an empty batch if the images have varying sizes.
             #          At this point, all images have to have the same size, otherwise you will get an error during training.
+                # ********* debug begin **********
+                if dump:
+                  print('generated %s in batch' % len(this_filenames))
+                  for i in range(len(this_filenames)):
+                    new_filename = os.path.basename(this_filenames[i]).split('.jpg')[0] + '-%s.jpg' % current
+                    im = Image.fromarray(batch_X[i])
+                    width, height = im.size
+                    im.save(os.path.join(working_dir, new_filename))
+                    training_log.write("<image file='%s'>\n" % new_filename)
+                    for box in y_true_plain[i, :, :]:
+                      if box[1] == 1:
+                        cx, cy, w, h = box[2:6].astype(np.int32)
+                        training_log.write("  <box top='%s' left='%s' width='%s' height='%s'/>\n" %
+                       (cy-h//2, cx - w//2, w, h))
+                    training_log.write("</image>\n")
+                # ********* debug end ************
             if train:
                 if diagnostics:
                     yield (np.array(batch_X), y_true, batch_y, this_filenames, original_images, original_labels)

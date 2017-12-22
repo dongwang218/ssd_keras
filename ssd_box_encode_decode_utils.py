@@ -895,6 +895,10 @@ class SSDBoxEncoder:
             background_class_indices = np.nonzero(negative_boxes)[0]
             y_encoded[i,background_class_indices,0] = 1
 
+        ####### debug begin ###########
+        y_decoded = np.copy(y_encoded)
+        y_decoded[:,:,-12:-8] = y_encode_template[:,:,-12:-8]
+        ####### debug end #############
         # 3: Convert absolute box coordinates to offsets from the anchor boxes and normalize them
         if self.coords == 'centroids':
             y_encoded[:,:,[-12,-11]] -= y_encode_template[:,:,[-12,-11]] # cx(gt) - cx(anchor), cy(gt) - cy(anchor)
@@ -907,4 +911,4 @@ class SSDBoxEncoder:
             y_encoded[:,:,[-10,-9]] /= np.expand_dims(y_encode_template[:,:,-9] - y_encode_template[:,:,-10], axis=-1) # (ymin(gt) - ymin(anchor)) / h(anchor), (ymax(gt) - ymax(anchor)) / h(anchor)
             y_encoded[:,:,-12:-8] /= y_encode_template[:,:,-4:] # (gt - anchor) / size(anchor) / variance for all four coordinates, where 'size' refers to w and h respectively
 
-        return y_encoded
+        return y_encoded, y_decoded
