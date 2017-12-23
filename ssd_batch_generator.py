@@ -741,10 +741,17 @@ class BatchGenerator:
                         else: crop_xmin = np.random.randint(0, -x_range + 1) # The possible positions for the image on the background canvas in the horizontal dimension
                         # Perform the crop
                         if y_range >= 0 and x_range >= 0: # If the patch to be cropped out is smaller than the original image in both dimenstions, we just perform a regular crop
+                            patch_y = np.copy(batch_y[i])
+                            # pick a patch make sure it is inside the patch
+                            picked = np.random.randint(0, patch_y.shape[0])
+                            starty = max(0, patch_y[picked, ymax] - random_crop[0])
+                            startx = max(0, patch_y[picked, xmax] - random_crop[1])
+                            crop_ymin = np.random.randint(start_y, y_range + 1)
+                            crop_xmin = np.random.randint(start_x, x_range + 1)
+
                             # Crop the image
                             patch_X = np.copy(batch_X[i][crop_ymin:crop_ymin+random_crop[0], crop_xmin:crop_xmin+random_crop[1]])
                             # Translate the box coordinates into the new coordinate system: Cropping shifts the origin by `(crop_ymin, crop_xmin)`
-                            patch_y = np.copy(batch_y[i])
                             patch_y[:,[ymin,ymax]] -= crop_ymin
                             patch_y[:,[xmin,xmax]] -= crop_xmin
                             # Limit the box coordinates to lie within the new image boundaries
@@ -796,6 +803,8 @@ class BatchGenerator:
                                 x_coords[x_coords >= random_crop[1]] = random_crop[1] - 1
                                 patch_y[:,[xmin,xmax]] = x_coords
                         else:  # If the crop is larger than the original image in both dimensions,...
+                            if random_crop[4]: crop_ymin = crop_xmin = 0 # fix it at 0,0
+
                             patch_X = np.copy(batch_X[i])
                             canvas = np.zeros((random_crop[0], random_crop[1], patch_X.shape[2]), dtype=np.uint8) # ...generate a blank background image to place the patch onto,...
                             canvas[crop_ymin:crop_ymin+img_height, crop_xmin:crop_xmin+img_width] = patch_X # ...and place the patch onto the canvas at the random `(crop_ymin, crop_xmin)` position computed above.
@@ -812,8 +821,17 @@ class BatchGenerator:
                         if limit_boxes and (y_range >= 0 or x_range >= 0):
                             before_area = (before_limiting[:,xmax] - before_limiting[:,xmin]) * (before_limiting[:,ymax] - before_limiting[:,ymin])
                             after_area = (patch_y[:,xmax] - patch_y[:,xmin]) * (patch_y[:,ymax] - patch_y[:,ymin])
+                            # for bbox that failed the test and after_area > 0, clear it to black
+                            patch_backup = np.copy(patch_X)
+                            for partial_patch in np.logical_and(after_area > 0, after_area < include_thresh * before_area):
+                              pp = patch_y[partial_patch]
+                              patch_X[pp[ymin]:pp[ymax], pp[xmin]:pp[xmax]] = 0
+
                             if include_thresh == 0: patch_y = patch_y[after_area > include_thresh * before_area] # If `include_thresh == 0`, we want to make sure that boxes with area 0 get thrown out, hence the ">" sign instead of the ">=" sign
                             else: patch_y = patch_y[after_area >= include_thresh * before_area] # Especially for the case `include_thresh == 1` we want the ">=" sign, otherwise no boxes would be left at all
+                            # make sure truth is not cleared
+                            for true_patch in patch_y:
+                              patch_X[truth_path[ymin]:truth_patch[ymax],truth_path[xmin]:truth_patch[xmax]] = patch_backup[truth_path[ymin]:truth_patch[ymax],truth_path[xmin]:truth_patch[xmax]]
                         trial_counter += 1 # We've just used one of our trials
                         # Check if we have found a valid crop
                         if random_crop[2] == 0: # If `min_1_object == 0`, break out of the while loop after the first loop because we are fine with whatever crop we got
