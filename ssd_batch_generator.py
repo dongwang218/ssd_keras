@@ -766,7 +766,7 @@ class BatchGenerator:
                                 x_coords[x_coords < 0] = 0
                                 x_coords[x_coords >= random_crop[1]] = random_crop[1] - 1
                                 patch_y[:,[xmin,xmax]] = x_coords
-                        elif y_range >= 0 and x_range < 0: # If the crop is larger than the original image in the horizontal dimension only,...
+                        elif y_range > 0 and x_range < 0: # If the crop is larger than the original image in the horizontal dimension only,...
                             # Crop the image
                             patch_X = np.copy(batch_X[i][crop_ymin:crop_ymin+random_crop[0]]) # ...crop the vertical dimension just as before,...
                             canvas = np.zeros((random_crop[0], random_crop[1], patch_X.shape[2]), dtype=np.uint8) # ...generate a blank background image to place the patch onto,...
@@ -784,7 +784,7 @@ class BatchGenerator:
                                 y_coords[y_coords < 0] = 0
                                 y_coords[y_coords >= random_crop[0]] = random_crop[0] - 1
                                 patch_y[:,[ymin,ymax]] = y_coords
-                        elif y_range < 0 and x_range >= 0: # If the crop is larger than the original image in the vertical dimension only,...
+                        elif y_range < 0 and x_range > 0: # If the crop is larger than the original image in the vertical dimension only,...
                             # Crop the image
                             patch_X = np.copy(batch_X[i][:,crop_xmin:crop_xmin+random_crop[1]]) # ...crop the horizontal dimension just as in the first case,...
                             canvas = np.zeros((random_crop[0], random_crop[1], patch_X.shape[2]), dtype=np.uint8) # ...generate a blank background image to place the patch onto,...
@@ -818,7 +818,7 @@ class BatchGenerator:
                         # process that they don't serve as useful training examples anymore, because too little of them is
                         # visible. We'll remove all boxes that we had to limit so much that their area is less than
                         # `include_thresh` of the box area before limiting.
-                        if limit_boxes and (y_range >= 0 or x_range >= 0):
+                        if limit_boxes and (y_range > 0 or x_range > 0):
                             before_area = (before_limiting[:,xmax] - before_limiting[:,xmin]) * (before_limiting[:,ymax] - before_limiting[:,ymin])
                             after_area = (patch_y[:,xmax] - patch_y[:,xmin]) * (patch_y[:,ymax] - patch_y[:,ymin])
                             # for bbox that failed the test and after_area > 0, clear it to black
