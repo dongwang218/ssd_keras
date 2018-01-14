@@ -912,3 +912,60 @@ class SSDBoxEncoder:
             y_encoded[:,:,-12:-8] /= y_encode_template[:,:,-4:] # (gt - anchor) / size(anchor) / variance for all four coordinates, where 'size' refers to w and h respectively
 
         return y_encoded, y_decoded
+
+
+def extract_patch(X, xmin, xmax, ymin, ymax):
+    import cv2
+    h, w = X.shape[1:3]
+    patches = X[:, ymin:ymax, xmin:xmax, :]
+    y = np.zeros(X.shape)
+    for i in range(patches.shape[0]):
+        y[i] = cv2.resize(patches[i], (h, w))
+    return y
+
+def y_pred_patch_extra(y_pred, xmin, xmax, ymin, ymax, full_img_width, full_img_height):
+    # disable patch edge detections
+    if xmin > 10:
+      y_pred[:, :, 1][(y_pred[:, :, -8] - y_pred[:, :, -6] // 2) < 10] = 0.1
+    if ymin > 10:
+      y_pred[:, :, 1][(y_pred[:, :, -7] - y_pred[:, :, -5] // 2) < 10] = 0.1
+    if xmax < full_img_width - 10:
+      y_pred[:, :, 1][full_img_width - (y_pred[:, :, -8] + y_pred[:, :, -6] // 2) < 10] = 0.1
+    if ymax < full_img_height - 10:
+      y_pred[:, :, 1][full_img_height - (y_pred[:, :, -7] + y_pred[:, :, -5] // 2) < 10] = 0.1
+
+    scale_x = full_img_width / (xmax-xmin)
+    scale_y = full_img_height / (ymax-ymin)
+    y_pred[:, :, -8] = y_pred[:, :, -8] / scale_x + xmin # cx
+    y_pred[:, :, -7] = y_pred[:, :, -7] / scale_y + ymin # cy
+    y_pred[:, :, -6] = y_pred[:, :, -6] / scale_x # width
+    y_pred[:, :, -5] = y_pred[:, :, -5] / scale_y # height
+    return y_pred
+
+def y_pred_patch(y_pred, xmin, xmax, ymin, ymax, full_img_width, full_img_height):
+    scale_x = full_img_width / (xmax-xmin)
+    scale_y = full_img_height / (ymax-ymin)
+    y_pred[:, :, -8] = y_pred[:, :, -8] / scale_x + xmin # cx
+    y_pred[:, :, -7] = y_pred[:, :, -7] / scale_y + ymin # cy
+    y_pred[:, :, -6] = y_pred[:, :, -6] / scale_x # width
+    y_pred[:, :, -5] = y_pred[:, :, -5] / scale_y # height
+    return y_pred
+
+def predict_with_patch(full_model, X):
+
+    full_img_height, full_img_width = X.shape[1:3]
+    assert(full_img_height == 1280 and full_img_width == 1280)
+    top_left = extract_patch(X, 0, full_img_width//2, 0, full_img_height//2)
+    top_right = extract_patch(X, full_img_width//2, full_img_width, 0, full_img_height//2)
+    bottom_left = extract_patch(X, 0, full_img_width//2, full_img_height//2, full_img_height)
+    bottom_right = extract_patch(X, full_img_width//2, full_img_width, full_img_height//2, full_img_height)
+
+    y_pred = full_model.predict(X)
+    y_pred_tl = y_pred_patch(full_model.predict(top_left), 0, full_img_width//2, 0, full_img_height//2, full_img_width, full_img_height)
+    y_pred_tr = y_pred_patch(full_model.predict(top_right), full_img_width//2, full_img_width, 0, full_img_height//2, full_img_width, full_img_height)
+    y_pred_bl = y_pred_patch(full_model.predict(bottom_left), 0, full_img_width//2, full_img_height/2, full_img_height, full_img_width, full_img_height)
+    y_pred_br = y_pred_patch(full_model.predict(bottom_right), full_img_width//2, full_img_width, full_img_height//2, full_img_height, full_img_width, full_img_height)
+    #y_pred_center = y_pred_patch(full_model.predict(bottom_right), full_img_width//3, full_img_width//3 + full_img_width//2, full_img_height//3, full_img_height//3+full_img_height//2, full_img_width, full_img_height)
+
+    merged = np.concatenate([y_pred, y_pred_tl, y_pred_tr, y_pred_bl, y_pred_br], axis = 1)
+    return merged
