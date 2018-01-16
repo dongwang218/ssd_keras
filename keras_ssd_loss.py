@@ -95,7 +95,7 @@ class SSDLoss:
         log_loss = -tf.reduce_sum(y_true * tf.log(y_pred), axis=-1)
         return log_loss
 
-    def compute_loss(self, y_true, y_pred):
+    def compute_loss(self, y_true, y_pred, diagnosis = False):
         '''
         Compute the loss of the SSD model prediction against the ground truth.
 
@@ -195,4 +195,19 @@ class SSDLoss:
 
         total_loss = (class_loss + self.alpha * loc_loss) / tf.maximum(1.0, n_positive) # In case `n_positive == 0`
 
-        return total_loss
+        if diagnosis:
+
+          def f1_index():
+              return tf.zeros([batch_size])
+          def f2_index():
+              neg_class_loss_all_1D = tf.reshape(neg_class_loss_all, [-1]) # Tensor of shape (batch_size * n_boxes,)
+              values, indices = tf.nn.top_k(neg_class_loss_all_1D, n_negative_keep, False) # We don't need sorting
+              negatives_keep = tf.scatter_nd(tf.expand_dims(indices, axis=1), updates=tf.ones_like(indices, dtype=tf.int32), shape=tf.shape(neg_class_loss_all_1D)) # Tensor of shape (batch_size * n_boxes,)
+              negatives_keep = tf.to_float(tf.reshape(negatives_keep, [batch_size, n_boxes])) # Tensor of shape (batch_size, n_boxes)
+              return negatives_keep
+
+          negatives_keep = tf.cond(tf.equal(n_neg_losses, tf.constant(0)), f1_index, f2_index)
+
+          return total_loss, positives, negatives_keep
+        else:
+          return total_loss
