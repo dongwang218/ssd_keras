@@ -27,7 +27,10 @@ class SSDLoss:
     def __init__(self,
                  neg_pos_ratio=3,
                  n_neg_min=0,
-                 alpha=1.0):
+                 alpha=1.0,
+                 iou_threshold = 0.3,
+                 num_hard_examples = 16
+                 ):
         '''
         Arguments:
             neg_pos_ratio (int, optional): The maximum ratio of negative (i.e. background)
@@ -49,6 +52,8 @@ class SSDLoss:
         self.neg_pos_ratio = tf.constant(neg_pos_ratio)
         self.n_neg_min = tf.constant(n_neg_min)
         self.alpha = tf.constant(alpha)
+        self.iou_threshold = iou_threshold
+        self.num_hard_examples = num_hard_examples
 
     def smooth_L1_loss(self, y_true, y_pred):
         '''
@@ -211,3 +216,53 @@ class SSDLoss:
           return total_loss, positives, negatives_keep
         else:
           return total_loss
+
+
+    def compute_loss_nms(self, y_true, y_pred, diagnosis = False):
+      batch_size = tf.shape(y_pred)[0] # Output dtype: tf.int32
+      n_boxes = tf.shape(y_pred)[1]
+
+      classification_loss = tf.to_float(self.log_loss(y_true[:,:,:-12], y_pred[:,:,:-12])) # Output shape: (batch_size, n_boxes)
+      localization_loss = tf.to_float(self.smooth_L1_loss(y_true[:,:,-12:-8], y_pred[:,:,-12:-8])) # Output shape: (batch_size, n_boxes)
+      positives = tf.to_float(tf.reduce_max(y_true[:,:,1:-12], axis=-1))
+      localization_loss = localization_loss * positives
+      negatives = y_true[:,:,0]
+
+      losses = tf.TensorArray(dtype=tf.float32,
+                              size=0, dynamic_size = True,
+                   element_shape=(1))
+      selected = tf.TensorArray(dtype=tf.float32,
+                              size=0, dynamic_size = True,
+                                element_shape=(52850)) # bad, but I can't use n_boxes
+
+      def cond(ind, losses, selected, classification_loss, localization_loss, alpha, y_true):
+        return tf.less(ind, tf.shape(y_true)[0])
+
+      def body(ind, losses, selected, classification_loss, localization_loss, alpha, y_true):
+        image_losses = classification_loss[ind, :]
+        image_losses += localization_loss[ind, :] * alpha
+        #cx, cy, w, h = tf.unstack(y_true[ind, :, -8:-4], axis = -1)
+        cx = y_true[ind, :, -8]
+        cy = y_true[ind, :, -7]
+        w = y_true[ind, :, -6]
+        h = y_true[ind, :, -5]
+        y1 = cy - h / 2
+        x1 = cx - w / 2
+        y2 = cy + h / 2
+        x2 = cx + w / 2
+        selected_indices = tf.image.non_max_suppression(
+            tf.to_float(tf.stack([y1, x1, y2, x2], axis=-1)), image_losses, self.num_hard_examples, self.iou_threshold)
+        loss = tf.reduce_mean(tf.gather(classification_loss[ind, :], selected_indices)) + tf.reduce_mean(tf.gather(localization_loss[ind, :], selected_indices)) * alpha
+        losses = losses.write(ind, [loss])
+
+        selected = selected.write(ind, tf.reduce_sum(tf.one_hot(selected_indices, n_boxes), axis = 0))
+        return ind + 1, losses, selected, classification_loss, localization_loss, alpha, y_true
+
+      _, losses, selected, _, _, _, _ = tf.while_loop(cond, body, [0, losses, selected, classification_loss, localization_loss, self.alpha, y_true])
+
+      total_loss = tf.reduce_mean(losses.stack())
+      selected = selected.stack()
+      if diagnosis:
+        return total_loss, selected
+      else:
+        return total_loss

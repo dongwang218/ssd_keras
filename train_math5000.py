@@ -16,6 +16,7 @@ from keras_ssd_loss import SSDLoss
 from ssd_box_encode_decode_utils import SSDBoxEncoder, decode_y, decode_y2
 from ssd_batch_generator import BatchGenerator
 
+import tensorflow as tf
 aspect_ratios = [0.5, 1.0, 2.0, 3.0] # The list of aspect ratios for the anchor boxes
 pos_iou_threshold=0.6
 neg_iot_threshold=0.1
@@ -65,7 +66,7 @@ model, predictor_sizes = build_model(image_size=(img_height, img_width, img_chan
                                      variances=variances,
                                      coords=coords,
                                      normalize_coords=normalize_coords)
-model.load_weights('../../data/corrections/ssd7_6_weights.h5')
+model.load_weights('../../data/corrections/ssd7_7_weights.h5')
 #model = load_model('./ssd7_0.h5')
 
 ### Set up training
@@ -76,7 +77,7 @@ adam = Adam(lr=0.001, beta_1=0.9, beta_2=0.999, epsilon=1e-08, decay=5e-05)
 
 ssd_loss = SSDLoss(neg_pos_ratio=3, n_neg_min=0, alpha=1.0)
 
-model.compile(optimizer=adam, loss=ssd_loss.compute_loss)
+model.compile(optimizer=adam, loss=ssd_loss.compute_loss_nms)
 
 # 4: Instantiate an encoder that can encode ground truth labels into the format needed by the SSD loss function
 
@@ -169,7 +170,7 @@ n_train_samples = train_dataset.get_n_samples()
 print('n_train_samples', n_train_samples)
 
 epochs = 1
-model.optimizer = Adam(lr=0.00001)
+model.optimizer = Adam(lr=0.00001) # small learning rate to observe what is being trained at
 
 from keras.callbacks import Callback
 import shutil
@@ -205,16 +206,22 @@ class CollectTrainingBbox(Callback):
     last_batch = self.gen.last_batch
     batch_X = last_batch['X']
     this_filenames = last_batch['filenames']
-    y_true_plain = last_batch['y_true_plain']
     y_true = last_batch['y_true']
-
     y_pred = model.predict_on_batch(batch_X)
-    loss, positives, negatives = self.loss_func.compute_loss(y_true, y_pred, diagnosis = True)
-    val = np.mean(K.eval(loss))
-    print('pre_train_loss', val)
+    assert(np.all(np.abs(y_true[:,:, -8:-4] - y_pred[:,:,-8:-4]) < 1e-3))
+    #loss, positives, negatives = self.loss_func.compute_loss_nms(y_true, y_pred, diagnosis = True)
+    #val = np.mean(K.eval(loss))
+    #print('pre_train_loss', val)
+    #positives = K.eval(positives)
+    #negatives = K.eval(negatives)
 
-    positives = K.eval(positives)
-    negatives = K.eval(negatives)
+    loss, selected = self.loss_func.compute_loss_nms(tf.convert_to_tensor(y_true, dtype=tf.float32),
+                                                     tf.convert_to_tensor(y_pred, dtype=tf.float32), diagnosis = True)
+    selected = K.eval(selected)
+
+    positives = np.logical_and(selected, np.any(y_true[:, :, 1:-12] > 0, axis=-1))
+    negatives = np.logical_and(selected, y_true[:, :, 0] > 0)
+
     assert(len(this_filenames) == y_pred.shape[0])
     # ********* debug begin **********
     #print('generated %s in batch' % len(this_filenames))
@@ -227,15 +234,15 @@ class CollectTrainingBbox(Callback):
       im.save(os.path.join(self.working_dir, new_filename))
       self.training_log.write("<image file='%s'>\n" % new_filename)
       for index in np.where(positives[i, :] > 0)[0]:
-        box = y_true_plain[i, index, :]
+        box = y_true[i, index, :]
         assert(box[1] == 1)
-        cx, cy, w, h = box[2:6].astype(np.int32)
+        cx, cy, w, h = box[-8:-4].astype(np.int32)
         self.training_log.write("  <box top='%s' left='%s' width='%s' height='%s'>\n    <label>pos</label>\n  </box>" %
                            (cy-h//2, cx - w//2, w, h))
       for index in np.where(negatives[i, :] > 0)[0]:
-        box = y_true_plain[i, index, :]
+        box = y_true[i, index, :]
         assert(box[0] == 1)
-        cx, cy, w, h = box[2:6].astype(np.int32)
+        cx, cy, w, h = box[-8:-4].astype(np.int32)
         self.training_log.write("  <box top='%s' left='%s' width='%s' height='%s'>\n    <label>neg</label>\n  </box>" %
                            (cy-h//2, cx - w//2, w, h))
       self.training_log.write("</image>\n")

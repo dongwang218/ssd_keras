@@ -88,8 +88,9 @@ def iot(boxes1, boxes2, coords):
 
     intersection = np.maximum(0, np.minimum(boxes1[:,1], boxes2[:,1]) - np.maximum(boxes1[:,0], boxes2[:,0])) * np.maximum(0, np.minimum(boxes1[:,3], boxes2[:,3]) - np.maximum(boxes1[:,2], boxes2[:,2]))
     truth = (boxes2[:,1] - boxes2[:,0]) * (boxes2[:,3] - boxes2[:,2])
+    anchor = (boxes1[:,1] - boxes1[:,0]) * (boxes1[:,3] - boxes1[:,2])
 
-    return intersection / truth
+    return intersection / np.minimum(truth, anchor)
 
 def convert_coordinates(tensor, start_index, conversion='minmax2centroids'):
     '''
@@ -851,7 +852,7 @@ class SSDBoxEncoder:
             `y_encoded`, a 3D numpy array of shape `(batch_size, #boxes, #classes + 4 + 4 + 4)` that serves as the
             ground truth label tensor for training, where `#boxes` is the total number of boxes predicted by the
             model per image, and the classes are one-hot-encoded. The four elements after the class vecotrs in
-            the last axis are the box coordinates, the next four elements after that are just dummy elements, and
+            the last axis are the box coordinates, the next four elements after that are anchor coordindates, and
             the last four elements are the variances.
         '''
 
@@ -896,8 +897,8 @@ class SSDBoxEncoder:
             y_encoded[i,background_class_indices,0] = 1
 
         ####### debug begin ###########
-        y_decoded = np.copy(y_encoded)
-        y_decoded[:,:,-12:-8] = y_encode_template[:,:,-12:-8]
+        #y_decoded = np.copy(y_encoded)
+        #y_decoded[:,:,-12:-8] = y_encode_template[:,:,-12:-8]
         ####### debug end #############
         # 3: Convert absolute box coordinates to offsets from the anchor boxes and normalize them
         if self.coords == 'centroids':
@@ -911,7 +912,7 @@ class SSDBoxEncoder:
             y_encoded[:,:,[-10,-9]] /= np.expand_dims(y_encode_template[:,:,-9] - y_encode_template[:,:,-10], axis=-1) # (ymin(gt) - ymin(anchor)) / h(anchor), (ymax(gt) - ymax(anchor)) / h(anchor)
             y_encoded[:,:,-12:-8] /= y_encode_template[:,:,-4:] # (gt - anchor) / size(anchor) / variance for all four coordinates, where 'size' refers to w and h respectively
 
-        return y_encoded, y_decoded
+        return y_encoded
 
 
 def extract_patch(X, xmin, xmax, ymin, ymax):

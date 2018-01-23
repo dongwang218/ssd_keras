@@ -892,8 +892,8 @@ class BatchGenerator:
             if train: # During training we need the encoded labels instead of the format that `batch_y` has
                 if ssd_box_encoder is None:
                     raise ValueError("`ssd_box_encoder` cannot be `None` in training mode.")
-                y_true, y_true_plain = ssd_box_encoder.encode_y(batch_y) # Encode the labels into the `y_true` tensor that the cost function needs
-                self.last_batch = {'filenames': this_filenames, 'X': np.array(batch_X), 'y_true_plain': y_true_plain, 'y_true': y_true}
+                y_true = ssd_box_encoder.encode_y(batch_y) # Encode the labels into the `y_true` tensor that the cost function needs
+                self.last_batch = {'filenames': this_filenames, 'X': np.array(batch_X), 'y_true': y_true}
 
             # CAUTION: Converting `batch_X` into an array will result in an empty batch if the images have varying sizes.
             #          At this point, all images have to have the same size, otherwise you will get an error during training.
