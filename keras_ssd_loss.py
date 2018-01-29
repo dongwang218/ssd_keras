@@ -239,8 +239,8 @@ class SSDLoss:
         return tf.less(ind, tf.shape(y_true)[0])
 
       def body(ind, losses, selected, classification_loss, localization_loss, alpha, y_true):
-        image_losses = classification_loss[ind, :]
-        image_losses += localization_loss[ind, :] * alpha
+        image_losses = classification_loss[ind, :] * negatives[ind, :] # only negatives
+        # image_losses += localization_loss[ind, :] * alpha
         #cx, cy, w, h = tf.unstack(y_true[ind, :, -8:-4], axis = -1)
         cx = y_true[ind, :, -8]
         cy = y_true[ind, :, -7]
@@ -252,10 +252,12 @@ class SSDLoss:
         x2 = cx + w / 2
         selected_indices = tf.image.non_max_suppression(
             tf.to_float(tf.stack([y1, x1, y2, x2], axis=-1)), image_losses, self.num_hard_examples, self.iou_threshold)
-        loss = tf.reduce_mean(tf.gather(classification_loss[ind, :], selected_indices)) + tf.reduce_mean(tf.gather(localization_loss[ind, :], selected_indices)) * alpha
+        #loss = tf.reduce_mean(tf.gather(classification_loss[ind, :], selected_indices)) + tf.reduce_mean(tf.gather(localization_loss[ind, :], selected_indices)) * alpha
+        positive_loss = (tf.reduce_sum(localization_loss[ind, :]) * alpha + tf.reduce_sum(classification_loss[ind, :] * positives[ind, :])) / tf.maximum(tf.constant(1.0, dtype = tf.float32), tf.reduce_sum(positives[ind, :]))
+        loss = positive_loss +  tf.reduce_mean(tf.gather(classification_loss[ind, :], selected_indices))
         losses = losses.write(ind, [loss])
 
-        selected = selected.write(ind, tf.reduce_sum(tf.one_hot(selected_indices, n_boxes), axis = 0))
+        selected = selected.write(ind, tf.reduce_sum(tf.one_hot(selected_indices, n_boxes), axis = 0) + positives[ind, :])
         return ind + 1, losses, selected, classification_loss, localization_loss, alpha, y_true
 
       _, losses, selected, _, _, _, _ = tf.while_loop(cond, body, [0, losses, selected, classification_loss, localization_loss, self.alpha, y_true])

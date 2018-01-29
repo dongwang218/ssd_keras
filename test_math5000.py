@@ -83,12 +83,14 @@ train_dataset.parse_csv(images_path=train_images_path,
 
 val_dataset = BatchGenerator(box_output_format=['class_id', 'xmin', 'xmax', 'ymin', 'ymax'])
 
-val_dataset.parse_csv(images_path=val_images_path,
+val_images_path = '../../data/corrections/set2/sheetimages/'
+val_labels_path = '../../data/corrections/math5000.xml'
+val_dataset.parse_dlib_xml(images_path=val_images_path,
                       labels_path=val_labels_path,
                       input_format=['image_name', 'xmin', 'xmax', 'ymin', 'ymax', 'class_id'],
                       include_classes='all')
 
-predict_generator = train_dataset.generate(batch_size=1,
+predict_generator = val_dataset.generate(batch_size=1,
                                          train=False,
                                          equalize=False,
                                          brightness=False,
@@ -122,7 +124,9 @@ def match_bbox(pos_iou_threshold, ground_truth, predicted_bbox):
     positive_boxes = np.zeros((predicted_bbox.shape[0])) # 1 for all negative boxes, 0 otherwise
     for true_box in ground_truth: # For each ground truth box belonging to the current batch item...
         true_box = true_box.astype(np.float)
-        if abs(true_box[1] - true_box[0] < 0.001) or abs(true_box[3] - true_box[2] < 0.001): continue # Protect ourselves against bad ground truth data: boxes with width or height equal to zero
+        if abs(true_box[1] - true_box[0] < 0.001) or abs(true_box[3] - true_box[2] < 0.001):
+          continue
+
         similarities = iou(predicted_bbox, true_box, coords='minmax') # The iou similarities for all anchor boxes
         positive_boxes[similarities >= pos_iou_threshold] = 1
         if np.all(similarities < pos_iou_threshold):
@@ -130,10 +134,12 @@ def match_bbox(pos_iou_threshold, ground_truth, predicted_bbox):
         else:
           true_positive.append(true_box)
     for index in np.nonzero(positive_boxes == 0)[0]:
-        false_positive.append(predicted_bbox[index])
+      b = predicted_bbox[index]
+      if b[1] - b[0] > 0.001:
+        false_positive.append(b)
     return true_positive, false_negative, false_positive
 
-result = open('../../data/corrections/set2_training_positive_negative.xml', 'w')
+result = open('../../data/corrections/set2_testing_positive_negative.xml', 'w')
 result.write("""<?xml version='1.0' encoding='ISO-8859-1'?>
 <?xml-stylesheet type='text/xsl' href='image_metadata_stylesheet.xsl'?>
 <dataset>
@@ -175,11 +181,11 @@ for i in range(n_val_samples):
                      (int(box[2] * height), int(box[0] * width),
                       int((box[1]-box[0])*width), int((box[3]-box[2])*height)))
     for box in false_positive:
-        if box[1] - box[0] > 0.0001:
-            result.write("  <box top='%s' left='%s' width='%s' height='%s'>\n    <label>pos</label>\n  </box>\n" %
+      result.write("  <box top='%s' left='%s' width='%s' height='%s'>\n    <label>pos</label>\n  </box>\n" %
                      (int(box[2] * height), int(box[0] * width),
                       int((box[1]-box[0])*width), int((box[3]-box[2])*height)))
     result.write("</image>\n")
+    result.flush()
 result.write("""
 </images>
 </dataset>""")

@@ -66,7 +66,7 @@ model, predictor_sizes = build_model(image_size=(img_height, img_width, img_chan
                                      variances=variances,
                                      coords=coords,
                                      normalize_coords=normalize_coords)
-model.load_weights('../../data/corrections/ssd7_7_weights.h5')
+model.load_weights('../../data/corrections/ssd7_8_weights.h5')
 #model = load_model('./ssd7_0.h5')
 
 ### Set up training
@@ -104,15 +104,15 @@ ssd_box_encoder = SSDBoxEncoder(img_height=img_height,
 
 # Training dataset
 train_images_path = '../../data/corrections/set2/sheetimages/'
-train_labels_path = '../../data/corrections/math5000_training.csv'
+train_labels_path = '../../data/corrections/math5000_training.xml'
 
 # Validation dataset
 val_images_path = '../../data/corrections/set2/sheetimages/'
-val_labels_path = '../../data/corrections/math5000_testing.csv'
+val_labels_path = '../../data/corrections/math5000_testing.xml'
 
 train_dataset = BatchGenerator(box_output_format=['class_id', 'xmin', 'xmax', 'ymin', 'ymax']) # This is the format in which the generator is supposed to output the labels. At the moment it **must** be the format set here.
 
-train_dataset.parse_csv(images_path=train_images_path,
+train_dataset.parse_dlib_xml(images_path=train_images_path,
                         labels_path=train_labels_path,
                         input_format=['image_name', 'xmin', 'xmax', 'ymin', 'ymax', 'class_id'], # This is the order of the first six columns in the CSV file that contains the labels for your dataset. If your labels are in XML format, maybe the XML parser will be helpful, check the documentation.
                         include_classes='all')
@@ -121,7 +121,7 @@ train_dataset.parse_csv(images_path=train_images_path,
 
 val_dataset = BatchGenerator(box_output_format=['class_id', 'xmin', 'xmax', 'ymin', 'ymax'])
 
-val_dataset.parse_csv(images_path=val_images_path,
+val_dataset.parse_dlib_xml(images_path=val_images_path,
                       labels_path=val_labels_path,
                       input_format=['image_name', 'xmin', 'xmax', 'ymin', 'ymax', 'class_id'],
                       include_classes='all')
@@ -170,7 +170,7 @@ n_train_samples = train_dataset.get_n_samples()
 print('n_train_samples', n_train_samples)
 
 epochs = 1
-model.optimizer = Adam(lr=0.00001) # small learning rate to observe what is being trained at
+model.optimizer = Adam(lr=0.000001) # small learning rate to observe what is being trained at
 
 from keras.callbacks import Callback
 import shutil

@@ -403,6 +403,51 @@ class BatchGenerator:
         if ret:
             return self.filenames, self.labels
 
+    def parse_dlib_xml(self,
+                  images_path=None,
+                  labels_path=None,
+                  input_format=None,
+                  include_classes='all',
+                  ret=False):
+        # If we get arguments in this call, set them
+        if not labels_path is None: self.labels_path = labels_path
+        if not input_format is None: self.input_format = input_format
+        if not include_classes is None: self.include_classes = include_classes
+        if not images_path is None: self.images_path = images_path
+
+        # Before we begin, make sure that we have a labels_path and an input_format
+        if self.labels_path is None or self.input_format is None:
+            raise ValueError("`labels_path` and/or `input_format` have not been set yet. You need to pass them as arguments.")
+
+        # Erase data that might have been parsed before
+        self.filenames = []
+        self.labels = []
+
+        import xml.etree.ElementTree
+        e = xml.etree.ElementTree.parse(labels_path).getroot()
+        images = e.findall('images')
+        assert(len(images) == 1)
+        image = images[0].findall('image')
+        for img in image:
+          current_file = os.path.basename(img.get('file'))
+          file_path = os.path.join(self.images_path, current_file)
+          #cv2_img = cv2.imread(file_path)
+          #if cv2_img is None:
+          #  print('bad file', file_path)
+          #  continue
+          self.filenames.append(file_path)
+          # get the box
+          current_labels = []
+          for box in img.getchildren():
+            current_labels.append(np.array([1, int(box.get('left')), int(box.get('left')) + int(box.get('width')), int(box.get('top')), int(box.get('top')) + int(box.get('height'))]))
+          if current_labels:
+            self.labels.append(np.stack(current_labels, axis=0))
+          else:
+            self.labels.append(np.array([[1, 0, 0, 0, 0]]))
+
+        if ret: # In case we want to return these
+            return self.filenames, self.labels
+
     def save_filenames_and_labels(self, filenames_path='filenames.pkl', labels_path='labels.pkl'):
         '''
         Writes the current `filenames` and `labels` lists to the specified files.
@@ -549,7 +594,7 @@ class BatchGenerator:
             in the `BachtGenerator` constructor.
         '''
 
-        self.filenames, self.labels = shuffle(self.filenames, self.labels) # Shuffle the data before we begin
+        if train: self.filenames, self.labels = shuffle(self.filenames, self.labels) # Shuffle the data before we begin
         current = 0
 
         # Find out the indices of the box coordinates in the label data
