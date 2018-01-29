@@ -197,6 +197,7 @@ def build_model(image_size,
     conv2 = BatchNormalization(axis=3, momentum=0.99, name='bn2')(conv2)
     conv2 = ELU(name='elu2')(conv2)
     pool2 = MaxPooling2D(pool_size=(2, 2), name='pool2')(conv2)
+    pool2 = Dropout(0.5)(pool2)
 
     conv3 = Conv2D(64, (3, 3), name='conv3', strides=(1, 1), padding="same")(pool2)
     conv3 = BatchNormalization(axis=3, momentum=0.99, name='bn3')(conv3)

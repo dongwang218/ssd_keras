@@ -29,7 +29,8 @@ class SSDLoss:
                  n_neg_min=0,
                  alpha=1.0,
                  iou_threshold = 0.3,
-                 num_hard_examples = 16
+                 num_hard_examples = 16,
+                 num_bbox = 52850
                  ):
         '''
         Arguments:
@@ -54,6 +55,7 @@ class SSDLoss:
         self.alpha = tf.constant(alpha)
         self.iou_threshold = iou_threshold
         self.num_hard_examples = num_hard_examples
+        self.num_bbox = num_bbox
 
     def smooth_L1_loss(self, y_true, y_pred):
         '''
@@ -233,7 +235,7 @@ class SSDLoss:
                    element_shape=(1))
       selected = tf.TensorArray(dtype=tf.float32,
                               size=0, dynamic_size = True,
-                                element_shape=(52850)) # bad, but I can't use n_boxes
+                                element_shape=(self.num_bbox)) # bad, but I can't use n_boxes
 
       def cond(ind, losses, selected, classification_loss, localization_loss, alpha, y_true):
         return tf.less(ind, tf.shape(y_true)[0])

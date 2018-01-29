@@ -1,5 +1,5 @@
 """Generate positive and negative patch images used for training"""
-import os
+import os, sys
 from PIL import Image
 
 import keras
@@ -23,12 +23,12 @@ mode = sys.argv[1]
 assert(mode in ['train', 'test'])
 
 scale_up = 1
-full_img_height = 1280*scale_up # Height of the input images
-full_img_width = 1280*scale_up # Width of the input images
+img_height = 1280*scale_up # Height of the input images
+img_width = 1280*scale_up # Width of the input images
 img_channels = 3 # Number of color channels of the input images
 n_classes = 2 # Number of classes including the background class
-full_min_scale = 0.01 # The scaling factor for the smallest anchor boxes
-full_max_scale = 0.2 # The scaling factor for the largest anchor boxes
+min_scale = 0.01 # The scaling factor for the smallest anchor boxes
+max_scale = 0.2 # The scaling factor for the largest anchor boxes
 scales = None # An explicit list of anchor box scaling factors. If this is passed, it will override `min_scale` and `max_scale`.
 aspect_ratios = [0.5, 1.0, 2.0, 3.0] # The list of aspect ratios for the anchor boxes
 two_boxes_for_ar1 = True # Whether or not you want to generate two anchor boxes for aspect ratio 1
@@ -36,14 +36,19 @@ limit_boxes = False # Whether or not you want to limit the anchor boxes to lie e
 variances = [1.0, 1.0, 1.0, 1.0] # The list of variances by which the encoded target coordinates are scaled
 coords = 'centroids' # Whether the box coordinates to be used should be in the 'centroids' or 'minmax' format, see documentation
 normalize_coords = False # Whether or not the model is supposed to use relative coordinates that are within [0,1]
+pos_iou_threshold=0.6
+neg_iot_threshold=0.1
+
+aug_scale=False
+aug_brightness=(0.8, 1.2, 0.5)
 
 # 2: Build the Keras model (and possibly load some trained weights)
 
 # The output `predictor_sizes` is needed below to set up `SSDBoxEncoder`
-full_model, full_predictor_sizes = build_model(image_size=(full_img_height, full_img_width, img_channels),
+full_model, predictor_sizes = build_model(image_size=(img_height, img_width, img_channels),
                                      n_classes=n_classes,
-                                     min_scale=full_min_scale,
-                                     max_scale=full_max_scale,
+                                     min_scale=min_scale,
+                                     max_scale=max_scale,
                                      scales=scales,
                                      aspect_ratios_global=aspect_ratios,
                                      aspect_ratios_per_layer=None,
@@ -56,13 +61,30 @@ full_model, full_predictor_sizes = build_model(image_size=(full_img_height, full
 full_model.load_weights('../../data/corrections/ssd7_7_weights.h5')
 
 ### Make predictions
-
+train_dataset = BatchGenerator(box_output_format=['class_id', 'xmin', 'xmax', 'ymin', 'ymax']) # This is the format i
 train_images_path = '../../data/corrections/set2/sheetimages/'
 train_labels_path = '../../data/corrections/math5000_%sing.xml' % mode
 train_dataset.parse_dlib_xml(images_path=train_images_path,
                       labels_path=train_labels_path,
                       input_format=['image_name', 'xmin', 'xmax', 'ymin', 'ymax', 'class_id'],
                       include_classes='all')
+
+ssd_box_encoder = SSDBoxEncoder(img_height=img_height,
+                                img_width=img_width,
+                                n_classes=n_classes,
+                                predictor_sizes=predictor_sizes,
+                                min_scale=min_scale,
+                                max_scale=max_scale,
+                                scales=scales,
+                                aspect_ratios_global=aspect_ratios,
+                                aspect_ratios_per_layer=None,
+                                two_boxes_for_ar1=two_boxes_for_ar1,
+                                limit_boxes=limit_boxes,
+                                variances=variances,
+                                pos_iou_threshold=pos_iou_threshold,
+                                neg_iot_threshold=neg_iot_threshold,
+                                coords=coords,
+                                normalize_coords=normalize_coords)
 
 predict_generator = train_dataset.generate(batch_size=1,
                                          train=True,
@@ -74,34 +96,37 @@ predict_generator = train_dataset.generate(batch_size=1,
                                          scale=aug_scale, # Randomly scale between 0.75 and 1.3 with probability 0.5
                                          max_crop_and_resize=False,
                                          full_crop_and_resize=False,
-                                         random_crop=(img_height, img_width, 1, 20, False),
+                                           random_crop=(img_height, img_width, 1, 20, True),
                                          crop=False,
                                          resize=False,
                                          gray=False,
                                          limit_boxes=True,
                                          include_thresh=0.8,
-                                         diagnostics=False)
+                                           diagnostics=True)
 
 n_train_samples = train_dataset.get_n_samples()
 
+ssd_loss = SSDLoss(neg_pos_ratio=3, n_neg_min=0, alpha=1.0, num_bbox = 164080)
+
 
 print('generating training log jpg and xml')
-workding_dir = os.path.join('../../data/corrections/patches/%s' % mode)
+working_dir = os.path.join('../../data/corrections/patches/%s' % mode)
 try:
   shutil.rmtree(working_dir)
 except:
   pass
 if not os.path.exists(working_dir):
-  os.makedirs(self.working_dir)
+  os.makedirs(working_dir)
 if not os.path.exists(working_dir + '/0'):
-  os.makedirs(self.working_dir + '/0')
+  os.makedirs(working_dir + '/0')
 if not os.path.exists(working_dir + '/1'):
-  os.makedirs(self.working_dir + '/1')
+  os.makedirs(working_dir + '/1')
 
 for i in range(n_train_samples):
-    X, y_true, filenames = next(predict_generator)
+    one_batch = next(predict_generator)
+    X, y_true, filenames = one_batch[0], one_batch[1], one_batch[3]
     #y_pred = full_model.predict(X)
-    y_pred = full_model.predict(batch_X)
+    y_pred = full_model.predict_on_batch(X)
     assert(np.all(np.abs(y_true[:,:, -8:-4] - y_pred[:,:,-8:-4]) < 1e-3))
     #loss, positives, negatives = self.loss_func.compute_loss_nms(y_true, y_pred, diagnosis = True)
     #val = np.mean(K.eval(loss))
@@ -109,7 +134,7 @@ for i in range(n_train_samples):
     #positives = K.eval(positives)
     #negatives = K.eval(negatives)
 
-    loss, selected = self.loss_func.compute_loss_nms(tf.convert_to_tensor(y_true, dtype=tf.float32),
+    loss, selected = ssd_loss.compute_loss_nms(tf.convert_to_tensor(y_true, dtype=tf.float32),
                                                      tf.convert_to_tensor(y_pred, dtype=tf.float32), diagnosis = True)
     selected = K.eval(selected)
 
@@ -120,10 +145,12 @@ for i in range(n_train_samples):
 
     for i in range(len(filenames)):
       new_filename = os.path.join(train_images_path, os.path.basename(filenames[i]))
-      img = Image.read(new_filename)
+      img = Image.open(new_filename, 'r')
 
-      for ind, id in enumerate(selected):
+      for ind, id in enumerate(np.where(selected[i] > 0)[0].tolist()):
         patch_name = new_filename.replace('.jpg', '-%03s.jpg' % ind)
+        import pdb
+        pdb.set_trace()
         patch = img.crop(y_true[i, id, -8:-4])
         label = '0' if  y_true[i, id, 0] else '1'
         patch.write(os.path.join(working_dir, label, os.path.basename(patch_name)))
